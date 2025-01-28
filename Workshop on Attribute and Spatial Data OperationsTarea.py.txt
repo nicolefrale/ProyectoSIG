@@ -1,0 +1,444 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[1]:
+
+
+import pandas as pd
+import shapely
+import geopandas as gpd
+import matplotlib.pyplot as plt
+
+
+# In[2]:
+
+
+import rasterio
+
+
+# In[43]:
+
+
+import sys
+import topojson as tp
+
+
+# In[66]:
+
+
+import pyproj
+
+
+# In[3]:
+
+
+print("GeoPandas:", gpd.__version__)
+print("Rasterio:", rasterio.__version__)
+
+
+# In[11]:
+
+
+path_area_estudio = r"C:/Users/Leydi/Documents/PSIG/data/ProyectoFinalSIG/Area_Estudio/Area_Estudio_ProgSIG.shp"
+df_area_estudio = gpd.read_file(path_area_estudio)
+
+
+# El área de estudio corresponde a cinco subzonas hidrografías aledaña y de influencia directa al PNN Chingaza, a saber, Río Guatiquía, Río Humea, Río Guacavía, Rio Guavio y Río Guayuriba, todas pertenecen al departamento del Meta
+
+# In[12]:
+
+
+df_area_estudio.info()
+
+
+# In[18]:
+
+
+df_area_estudio.plot()
+
+
+# La segunda informacion de tipo vectorial presentan Unidad de Análisis Hidrológico (UAH) y la dinamica de caudales como resultado de implementar un modelo hidrologico por Nogales et al, 2012 en su estusio “Hydrological Modeling for Multifunctional Landscape Planning in the Orinoquia Region of Colombia”. Con este modelo se analizaron cinco diferentes escenarios de expansión agroindustrial, encontrando que la Orinoquia colombiana puede tener futuras altas presiones sobre áreas de recursos hídricos con cambios críticos en el régimen de disponibilidad hídrica.
+# La capa escenario 1 considera una expansión modesta de transformación del uso del suelo que maximiza los beneficios agrícolas
+
+# In[9]:
+
+
+path_caudales_sc1 = r"C:/Users/Leydi/Documents/PSIG/data/ProyectoFinalSIG/Estres_Hidrico/AE_HUA_SC1.shp"
+df_caudales_sc1 = gpd.read_file(path_caudales_sc1)
+
+
+# In[7]:
+
+
+df_caudales_sc1.columns
+
+
+# In[8]:
+
+
+df_caudales_sc1.geometry
+
+
+# In[10]:
+
+
+df_caudales_sc1.info()
+
+
+# La capa contiene 28 elemento geográficos de tipo polígono y multipolígono, que representan las Unidad de Análisis Hidrológico (UAH) y cinco columas 'SC1_BAU_Rn', 'Shape_Leng', 'Shape_Area', 'Area_Ha_CT', 'geometry'
+
+# In[6]:
+
+
+df_caudales_sc1.plot()
+
+
+# Se considera renombrar la columa SC1_BAU_Rn por Dn_Caudales_SC1 que ofrece una mejor descripción de la variable
+
+# In[40]:
+
+
+df_caudales_sc1.rename(columns={'SC1_BAU_Rn': 'Dn_Caudales_SC1'})
+
+
+# # **Operaciones con datos de atributos**
+La columna SC1_BAU_Rn presenta el resultado de la implementación del  modela en la dinámica de caudales con intervalos numéricos que representa la diminución, igual a la condicion actual o aumento de los caudales en las UAH. Seleccionamos esta columna porque incluye información imporante para el trabajo final
+# In[41]:
+
+
+df_caudales_sc1.iloc[:, 0:1]
+
+
+# **Subconjunto de atributos vectoriales**
+
+# Se realiza el filtro para seleccionan las UAH cuya área es mayor o igual a 1.000.000 de hectáreas. Esta selección genera 7 registros de tipo multipoligono 
+
+# In[19]:
+
+
+idx_UAH_mayores = df_caudales_sc1['Area_Ha_CT'] >= 1000000  
+UAH_mayores= df_caudales_sc1[idx_UAH_mayores]
+UAH_mayores
+
+
+# La tercera información vectorial corresponde al Mapa de ecosistemas continentales, marinos y costeros de Colombia 2017. Versión 2.1 (Subdirección de Ecosistemas e Información Ambiental - IDEAM, Grupo de Suelos y Tierras, 2017).
+
+# In[21]:
+
+
+path_eco_AE = r"C:/Users/Leydi/Documents/PSIG/data/ProyectoFinalSIG/Eco_AE.shp"
+df_eco_AE = gpd.read_file(path_eco_AE)
+
+
+# In[22]:
+
+
+df_eco_AE.info()
+
+
+# In[23]:
+
+
+df_eco_AE.columns
+
+
+# In[25]:
+
+
+valores_unicos = df_eco_AE['ECOS_SINTE'].unique()
+print(valores_unicos)
+
+
+# Se selecciona los datos por un atributo categórico Ecosistemas tipo Bosque cuya área sea mayor a 100 hectáreas y se presenta información asociada el Paisaje, Clima Cobertura y área, dado que es relevante conocerla para el proyecto final. Esta seleccion genera 329 registros
+
+# In[32]:
+
+
+idx_area = df_eco_AE['Area_ha'] > 100
+idx_ecositema = df_eco_AE['ECOS_SINTE'] == 'Bosque'
+df_eco_AE.loc[idx_area & idx_ecositema, ['PAISAJE', 'CLIMA','COBERTURA', 'Area_ha']]
+
+
+# Se selecciona por le atributo categórico Ecosistemas que relacionan a os ecositemas de tipo cultural como los agroecosistemas y Territorio artificializado y se presenta la información general del cosistema y el área. Esta selección arroja 3157 atributos
+
+# In[33]:
+
+
+df_eco_AE[df_eco_AE['ECOS_SINTE'].isin(['Agroecosistema', 'Territorio artificializado'])]  \
+    .loc[:, ['ECOS_GENER', 'Area_ha']]
+
+
+# **Agregación de atributos vectoriales**
+
+# Se realiza la agregación en función de la variable ecosistemas general y se suma el total de hectáreas correspondientes a cada ecosistema. El resultado, en este caso, es una tabla (no espacial) con 17 filas, una por valor único en ecositema, y dos columnas que informan el nombre y el area de cada ecositema.
+
+# In[36]:
+
+
+Eco_agg = df_eco_AE.groupby('ECOS_SINTE')[['Area_ha']].sum().reset_index()
+Eco_agg
+
+
+# En el caso del dissolve se considera para mejorar proceso como geoprocesamiento disolver la subcuencas de la área de estudio en una única área 
+
+# In[37]:
+
+
+df_area_estudio.columns
+
+
+# In[38]:
+
+
+area_estudio_agg = df_area_estudio[['NOM_AH', 'NOM_ZH', 'geometry']] \
+    .dissolve(by='NOM_AH', aggfunc='sum') \
+    .reset_index()
+area_estudio_agg
+
+
+# In[39]:
+
+
+area_estudio_agg.plot()
+
+
+# # **Operaciones espaciales**
+
+# El recorte espacial es una forma de subconjunto espacial que implica cambios en las columnas de geometría de al menos algunas de las entidades afectadas. En este caso realizaremos el recorte de la capa de caudales_SC1 con el area del PNN Chingaza para evidenciar cual seria la dinamica en los caudales en esta zona protegida. Para realizar un clip (intersección geométrica) entre estas dos capas vectoriales empleando la función geopandas.clip()
+
+# In[44]:
+
+
+path_PNN_Chingaza = r"C:/Users/Leydi/Documents/PSIG/data/ProyectoFinalSIG/PNN/PNN_Chingaza.shp" 
+df_PNN_chingaza = gpd.read_file(path_PNN_Chingaza)
+
+
+# In[60]:
+
+
+df_PNN_chingaza.plot()
+
+
+# Antes de realizar el clic reproyectamos los objetos df_caudales_sc1 y df_PNN_chingaza la cual está en sistema geográfico EPSG:4326, al sistema plano EPSG:4686 para procesar las capa en un mismo crs
+
+# In[67]:
+
+
+df_caudales_sc1.crs.is_geographic
+
+
+# In[70]:
+
+
+print(df_caudales_sc1.crs)
+
+
+# In[81]:
+
+
+df_caudales_sc1_proj= df_caudales_sc1.to_crs(9377)
+print("CRS reproyectado:", df_caudales_sc1_proj.crs)
+
+
+# In[87]:
+
+
+df_PNN_chingaza.crs.is_geographic
+
+
+# In[88]:
+
+
+print(df_PNN_chingaza.crs)
+
+
+# In[89]:
+
+
+PNN_chingaza_proj= df_PNN_chingaza.to_crs(9377)
+print("CRS reproyectado:", PNN_chingaza_proj.crs)
+
+
+# In[90]:
+
+
+Caudales_PNN_SC1 = gpd.clip(df_caudales_sc1_proj, PNN_chingaza_proj)
+print(Caudales_PNN_SC1)
+
+
+# In[91]:
+
+
+Caudales_PNN_SC1.plot()
+
+
+# In[92]:
+
+
+Caudales_PNN_SC1.info()
+
+
+# In[140]:
+
+
+Caudales_PNN_SC1.iloc[:, 0:1]
+
+
+# El área del PNN Chingaza comprende siete Unidades de Análisis hidrográfico con un rango de disminución del caudal (-25) - (-20)
+
+# Los buffers son polígonos que representan el área dentro de una distancia dada de una característica geométrica. En este caso utilizaremos la propuesta para definir áreas de amortiguación de áreas protegidas en Colombia para realizar el buffer. Para le cual definen un rango recomendado para áreas de amortiguación puede oscilar entre 5 km y 10 km alrededor de un área protegida.  En regiones críticas, los Andes tropicales, las áreas de amortiguación podrían extenderse aún más (hasta 20 km en algunos casos) para preservar corredores biológicos y mitigar impactos externos como la deforestación.
+
+# Primer definimos el área de amortiguación con el valor mínimo que es de 5k
+
+# In[103]:
+
+
+PNN_chingaza_proj['A_Amortiguacion_5km'] = PNN_chingaza_proj.geometry.buffer(5000)
+
+
+# In[111]:
+
+
+buffer_PNN_5k= PNN_chingaza_proj.set_geometry('A_Amortiguacion_5km')
+buffer_PNN_5k
+
+
+# In[112]:
+
+
+Area_Amortiguacion_5k_= buffer_PNN_5k.drop(columns=['Amotiguacion_5km', 'Amortiguacion_5km', 'geometry' ])
+
+
+# In[113]:
+
+
+Area_Amortiguacion_5k_.to_file("Area_amortiguacion_5km.shp")
+print(Area_Amortiguacion_5k_)
+
+
+# In[110]:
+
+
+Area_Amortiguacion_5k_.plot()
+
+
+# Ahora, definimos el área de amortiguación con el valor máximo que es de 20k
+
+# In[117]:
+
+
+PNN_chingaza_proj['A_Amortiguacion_20km'] = PNN_chingaza_proj.geometry.buffer(20000)
+
+
+# In[123]:
+
+
+buffer_PNN_20k= PNN_chingaza_proj.set_geometry('A_Amortiguacion_20km')
+buffer_PNN_20k
+
+
+# In[129]:
+
+
+Area_Amortiguacion_20k= buffer_PNN_20k.drop(columns=['Amotiguacion_5km', 'Amortiguacion_5km', 'geometry', 'A_Amortiguacion_5km' ])
+
+
+# In[130]:
+
+
+Area_Amortiguacion_20k.to_file("Area_amortiguacion_20km.shp")
+print(Area_Amortiguacion_20k)
+
+
+# In[131]:
+
+
+Area_Amortiguacion_20k.plot()
+
+
+# Utilizamos la zona buffer para identificar las Unidades de Análisis Hidrográfico que comprende el área de amortiguación con el de 20 kilometras alrededor del PNN Chingaza
+
+# In[133]:
+
+
+interseccion_AAmort = gpd.overlay(df_caudales_sc1_proj, Area_Amortiguacion_20k, how="intersection")
+
+
+# In[136]:
+
+
+interseccion_AAmort.to_file("caudales_Amoti_20k.shp")
+print(interseccion_AAmort)
+
+
+# In[137]:
+
+
+interseccion_AAmort.plot()
+
+
+# In[139]:
+
+
+interseccion_AAmort.iloc[:, 0:1]
+
+
+# En el área de amortiguación con criterio de 20 km alrededor del PNN Chingaza comprende 17 Unidades de Análisis hidrográfico con un rango de disminución del caudal (-99) - (-95). En el área de amortiguación se estima que la reducción del caudal sea mucho mayor, casi en una perdida del caudal
+
+# In[156]:
+
+
+Caudales_PNN_SC1['Index'] = range(0, len(Caudales_PNN_SC1))
+
+Caudales_PNN_SC1
+
+
+# In[188]:
+
+
+value_PNN_caudales = pd.read_csv('C:/Users/Leydi/Documents/PSIG/data/Value_Caudales_PNN.csv', sep=";")
+value_PNN_caudales
+
+
+# In[191]:
+
+
+prueba = pd.merge(Caudales_PNN_SC1, value_PNN_caudales, on='SC1_BAU_Rn', how='left')
+prueba
+
+
+# In[187]:
+
+
+prueba.plot(
+  column='Max', 
+  legend=True,
+  cmap='Blues', edgecolor='black',
+  missing_kwds={'color': 'grey', 'edgecolor': 'black'}
+);
+
+
+# In[192]:
+
+
+value_AM_caudales = pd.read_csv('C:/Users/Leydi/Documents/PSIG/data/Value_Caudales_AM.csv', sep=";")
+value_AM_caudales
+
+
+# In[194]:
+
+
+prueba_AM = pd.merge(interseccion_AAmort, value_AM_caudales, on='SC1_BAU_Rn', how='left')
+prueba_AM
+
+
+# In[195]:
+
+
+prueba_AM.plot(
+  column='Max', 
+  legend=True,
+  cmap='Blues', edgecolor='black',
+  missing_kwds={'color': 'grey', 'edgecolor': 'black'}
+);
+
